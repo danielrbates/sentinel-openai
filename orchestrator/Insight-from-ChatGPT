@@ -1,0 +1,100 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "For_each_analytic_rule": {
+                "actions": {
+                    "Add_comment_to_incident_(V3)": {
+                        "inputs": {
+                            "body": {
+                                "incidentArmId": "@triggerBody()?['object']?['id']",
+                                "message": "<p>@{body('Parse_JSON_returned_from_logic_app')?['response']}</p>"
+                            },
+                            "host": {
+                                "connection": {
+                                    "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                                }
+                            },
+                            "method": "post",
+                            "path": "/Incidents/Comment"
+                        },
+                        "runAfter": {
+                            "Parse_JSON_returned_from_logic_app": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "ApiConnection"
+                    },
+                    "Parse_JSON_returned_from_logic_app": {
+                        "inputs": {
+                            "content": "@body('azureopenai-explain-sentinel-rule')",
+                            "schema": {
+                                "properties": {
+                                    "response": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "runAfter": {
+                            "azureopenai-explain-sentinel-rule": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "ParseJson"
+                    },
+                    "azureopenai-explain-sentinel-rule": {
+                        "inputs": {
+                            "body": {
+                                "relatedRuleId": "@{items('For_each_analytic_rule')}"
+                            },
+                            "host": {
+                                "triggerName": "manual",
+                                "workflow": {
+                                    "id": "/subscriptions/*/resourceGroups/*/providers/Microsoft.Logic/workflows/azureopenai-explain-sentinel-rule"
+                                }
+                            }
+                        },
+                        "runAfter": {},
+                        "type": "Workflow"
+                    }
+                },
+                "foreach": "@triggerBody()?['object']?['properties']?['relatedAnalyticRuleIds']",
+                "runAfter": {},
+                "type": "Foreach"
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+            }
+        },
+        "triggers": {
+            "Microsoft_Sentinel_incident": {
+                "inputs": {
+                    "body": {
+                        "callback_url": "@{listCallbackUrl()}"
+                    },
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['azuresentinel']['connectionId']"
+                        }
+                    },
+                    "path": "/incident-creation"
+                },
+                "type": "ApiConnectionWebhook"
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "value": {
+                }
+            }
+        }
+    }
+}
