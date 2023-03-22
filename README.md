@@ -1,2 +1,2 @@
-# sentinel
-Sentinel lab using Infrastructure as Code.
+# Sentinel + OpenAI
+Integrating Microsoft Sentinel with Azure OpenAI.
