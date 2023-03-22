@@ -1,0 +1,313 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Construct_the_prompt": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "prompt",
+                            "type": "string",
+                            "value": "<|im_start|>system\n@{variables('system')}\n<|im_end|>\n\n<|im_start|>user\n@{variables('user')}\n<|im_end|>\n\n<|im_start|>assistant"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Define_the_user_message": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Define_\"response\"_variable": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "response",
+                            "type": "string",
+                            "value": "Human-readable explanation of the analytics rule \"@{body('Parse_alert_rule_JSON')?['properties']?['displayName']}\", summarized by ChatGPT on Azure OpenAI: @{body('Parse_JSON_from_chat_completion')?['choices']?[0]?['text']}"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Parse_JSON_from_chat_completion": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Define_\"temperature\"_variable": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "temperature",
+                            "type": "float",
+                            "value": 0.5
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Construct_the_prompt": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Define_system_message": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "system",
+                            "type": "string",
+                            "value": "You are assisting a SOC analyst with triaging an incident in Microsoft Sentinel."
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Get_Azure_OpenAI_Service_API_key_from_Key_Vault": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Define_the_user_message": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "user",
+                            "type": "string",
+                            "value": "Can you explain the following Microsoft Sentinel analytics rule?\n\n@{body('Parse_alert_rule_JSON')?['properties']?['query']}"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Define_system_message": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Get_Azure_OpenAI_Service_API_key_from_Key_Vault": {
+                "inputs": {
+                    "host": {
+                        "connection": {
+                            "name": "@parameters('$connections')['keyvault']['connectionId']"
+                        }
+                    },
+                    "method": "get",
+                    "path": "/secrets/@{encodeURIComponent('*')}/value"
+                },
+                "runAfter": {
+                    "Parse_alert_rule_JSON": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ApiConnection"
+            },
+            "HTTP_-_chat_completion": {
+                "inputs": {
+                    "body": {
+                        "max_tokens": 2048,
+                        "prompt": "@variables('prompt')",
+                        "stop": [
+                            "<|im_end|>"
+                        ],
+                        "temperature": "@variables('temperature')"
+                    },
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "api-key": "@body('Get_Azure_OpenAI_Service_API_key_from_Key_Vault')?['value']"
+                    },
+                    "method": "POST",
+                    "uri": "https://[projectname].openai.azure.com/openai/deployments/[deploymentname]/completions?api-version=2022-12-01"
+                },
+                "runAfter": {
+                    "Define_\"temperature\"_variable": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Http"
+            },
+            "HTTP_-_get_alert_rule": {
+                "inputs": {
+                    "authentication": {
+                        "type": "ManagedServiceIdentity"
+                    },
+                    "method": "GET",
+                    "uri": "https://management.azure.com@{triggerBody()?['relatedRuleId']}?api-version=2022-11-01"
+                },
+                "runAfter": {},
+                "type": "Http"
+            },
+            "Parse_JSON_from_chat_completion": {
+                "inputs": {
+                    "content": "@body('HTTP_-_chat_completion')",
+                    "schema": {
+                        "properties": {
+                            "choices": {
+                                "items": {
+                                    "properties": {
+                                        "finish_reason": {},
+                                        "index": {
+                                            "type": "integer"
+                                        },
+                                        "logprobs": {},
+                                        "text": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "text",
+                                        "index",
+                                        "finish_reason",
+                                        "logprobs"
+                                    ],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "created": {
+                                "type": "integer"
+                            },
+                            "id": {
+                                "type": "string"
+                            },
+                            "model": {
+                                "type": "string"
+                            },
+                            "object": {
+                                "type": "string"
+                            },
+                            "usage": {
+                                "properties": {
+                                    "completion_tokens": {
+                                        "type": "integer"
+                                    },
+                                    "prompt_tokens": {
+                                        "type": "integer"
+                                    },
+                                    "total_tokens": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "runAfter": {
+                    "HTTP_-_chat_completion": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson"
+            },
+            "Parse_alert_rule_JSON": {
+                "inputs": {
+                    "content": "@body('HTTP_-_get_alert_rule')",
+                    "schema": {
+                        "properties": {
+                            "id": {
+                                "type": "string"
+                            },
+                            "kind": {
+                                "type": "string"
+                            },
+                            "properties": {
+                                "properties": {
+                                    "description": {
+                                        "type": "string"
+                                    },
+                                    "displayName": {
+                                        "type": "string"
+                                    },
+                                    "lastModifiedUtc": {
+                                        "type": "string"
+                                    },
+                                    "query": {
+                                        "type": "string"
+                                    },
+                                    "severity": {
+                                        "type": "string"
+                                    },
+                                    "tactics": {},
+                                    "techniques": {}
+                                },
+                                "type": "object"
+                            },
+                            "type": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "runAfter": {
+                    "HTTP_-_get_alert_rule": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson"
+            },
+            "Response": {
+                "inputs": {
+                    "body": {
+                        "response": "@variables('response')"
+                    },
+                    "headers": {
+                        "content-type": "application/json"
+                    },
+                    "statusCode": 200
+                },
+                "kind": "Http",
+                "runAfter": {
+                    "Define_\"response\"_variable": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Response"
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "defaultValue": {},
+                "type": "Object"
+            }
+        },
+        "triggers": {
+            "manual": {
+                "inputs": {
+                    "schema": {
+                        "properties": {
+                            "relatedRuleId": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "kind": "Http",
+                "type": "Request"
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "value": {
+                "keyvault": {
+                    "connectionId": "/subscriptions/*/resourceGroups/*/providers/Microsoft.Web/connections/keyvault",
+                    "connectionName": "keyvault",
+                    "connectionProperties": {
+                        "authentication": {
+                            "type": "ManagedServiceIdentity"
+                        }
+                    },
+                    "id": "/subscriptions/*/providers/Microsoft.Web/locations/*/managedApis/keyvault"
+                }
+            }
+        }
+    }
+}
