@@ -2,22 +2,35 @@
     "definition": {
         "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
         "actions": {
-            "Construct_the_prompt": {
+            "Construct_the_prompt_-_system": {
                 "inputs": {
-                    "variables": [
-                        {
-                            "name": "prompt",
-                            "type": "string",
-                            "value": "<|im_start|>system\n@{variables('system')}\n<|im_end|>\n\n<|im_start|>user\n@{variables('user')}\n<|im_end|>\n\n<|im_start|>assistant"
-                        }
-                    ]
+                    "name": "messages",
+                    "value": {
+                        "content": "@variables('system')",
+                        "role": "system"
+                    }
                 },
                 "runAfter": {
-                    "Define_the_user_message": [
+                    "Initialize_the_prompt": [
                         "Succeeded"
                     ]
                 },
-                "type": "InitializeVariable"
+                "type": "AppendToArrayVariable"
+            },
+            "Construct_the_prompt_-_user": {
+                "inputs": {
+                    "name": "messages",
+                    "value": {
+                        "content": "@variables('user')",
+                        "role": "user"
+                    }
+                },
+                "runAfter": {
+                    "Construct_the_prompt_-_system": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "AppendToArrayVariable"
             },
             "Define_\"response\"_variable": {
                 "inputs": {
@@ -25,7 +38,7 @@
                         {
                             "name": "response",
                             "type": "string",
-                            "value": "Human-readable explanation of the analytics rule \"@{body('Parse_alert_rule_JSON')?['properties']?['displayName']}\", summarized by ChatGPT on Azure OpenAI: @{body('Parse_JSON_from_chat_completion')?['choices']?[0]?['text']}"
+                            "value": "Human-readable explanation of the analytics rule \"@{body('Parse_alert_rule_JSON')?['properties']?['displayName']}\", summarized by ChatGPT on Azure OpenAI: \n@{body('Parse_JSON_from_chat_completion')?['choices']?[0]?['message']?['content']}"
                         }
                     ]
                 },
@@ -47,7 +60,41 @@
                     ]
                 },
                 "runAfter": {
-                    "Construct_the_prompt": [
+                    "Define_Azure_OpenAI_Service_deployment_model_name": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Define_Azure_OpenAI_Service_deployment_model_name": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "deployment",
+                            "type": "string",
+                            "value": ""
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Define_Azure_OpenAI_Service_endpoint": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Define_Azure_OpenAI_Service_endpoint": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "endpoint",
+                            "type": "string",
+                            "value": ""
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Get_Azure_OpenAI_Service_API_key_from_Key_Vault": [
                         "Succeeded"
                     ]
                 },
@@ -64,7 +111,7 @@
                     ]
                 },
                 "runAfter": {
-                    "Get_Azure_OpenAI_Service_API_key_from_Key_Vault": [
+                    "Define_\"temperature\"_variable": [
                         "Succeeded"
                     ]
                 },
@@ -95,7 +142,7 @@
                         }
                     },
                     "method": "get",
-                    "path": "/secrets/@{encodeURIComponent('*')}/value"
+                    "path": "/secrets/@{encodeURIComponent('keyname')}/value"
                 },
                 "runAfter": {
                     "Parse_alert_rule_JSON": [
@@ -108,10 +155,7 @@
                 "inputs": {
                     "body": {
                         "max_tokens": 2048,
-                        "prompt": "@variables('prompt')",
-                        "stop": [
-                            "<|im_end|>"
-                        ],
+                        "messages": "@variables('messages')",
                         "temperature": "@variables('temperature')"
                     },
                     "headers": {
@@ -119,10 +163,10 @@
                         "api-key": "@body('Get_Azure_OpenAI_Service_API_key_from_Key_Vault')?['value']"
                     },
                     "method": "POST",
-                    "uri": "https://[projectname].openai.azure.com/openai/deployments/[deploymentname]/completions?api-version=2022-12-01"
+                    "uri": "https://@{variables('endpoint')}.openai.azure.com/openai/deployments/@{variables('deployment')}/chat/completions?api-version=2023-03-15-preview"
                 },
                 "runAfter": {
-                    "Define_\"temperature\"_variable": [
+                    "Construct_the_prompt_-_user": [
                         "Succeeded"
                     ]
                 },
@@ -139,6 +183,23 @@
                 "runAfter": {},
                 "type": "Http"
             },
+            "Initialize_the_prompt": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "messages",
+                            "type": "array",
+                            "value": []
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Define_the_user_message": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
             "Parse_JSON_from_chat_completion": {
                 "inputs": {
                     "content": "@body('HTTP_-_chat_completion')",
@@ -147,20 +208,28 @@
                             "choices": {
                                 "items": {
                                     "properties": {
-                                        "finish_reason": {},
+                                        "finish_reason": {
+                                            "type": "string"
+                                        },
                                         "index": {
                                             "type": "integer"
                                         },
-                                        "logprobs": {},
-                                        "text": {
-                                            "type": "string"
+                                        "message": {
+                                            "properties": {
+                                                "content": {
+                                                    "type": "string"
+                                                },
+                                                "role": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
                                         }
                                     },
                                     "required": [
-                                        "text",
                                         "index",
                                         "finish_reason",
-                                        "logprobs"
+                                        "message"
                                     ],
                                     "type": "object"
                                 },
